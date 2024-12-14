@@ -1,0 +1,67 @@
+local aux = {}
+
+-- Localizing functions for better performance
+local getGc = getgc
+local getInfo = debug.getinfo  -- We don't need fallback, `debug.getinfo` should exist
+local getUpvalue = debug.getupvalue or getupvalue or getupval
+local getConstants = debug.getconstants or getconstants or getconsts
+local isXClosure = is_synapse_function or issentinelclosure or is_protosmasher_closure or is_sirhurt_closure or istempleclosure or checkclosure
+local isLClosure = islclosure or is_l_closure or (iscclosure and function(f) return not iscclosure(f) end)
+
+-- Ensure that all required functions exist
+assert(getGc and getInfo and getConstants and isXClosure, "Your exploit is not supported")
+
+-- Placeholder to represent userdata constants
+local placeholderUserdataConstant = newproxy(false)
+
+-- Function to match constants against a list
+local function matchConstants(closure, list)
+    if not list then
+        return true  -- If no constants to match, always return true
+    end
+    
+    local constants = getConstants(closure)
+    
+    -- Loop through the list of expected constants and compare them
+    for index, value in pairs(list) do
+        -- If constants don't match and value is not the placeholder, return false
+        if constants[index] ~= value then
+            if value ~= placeholderUserdataConstant then
+                return false
+            end
+        end
+    end
+    
+    return true
+end
+
+-- Function to search for a closure by its script, name, upvalue index, and constants
+local function searchClosure(script, name, upvalueIndex, constants)
+    for _i, v in pairs(getGc()) do
+        local parentScript = rawget(getfenv(v), "script")
+
+        -- We ensure that the function is a Lua closure and it's not an exploit-specific closure
+        if type(v) == "function" and 
+           isLClosure(v) and 
+           not isXClosure(v) and 
+           (
+               (script == nil and parentScript.Parent == nil) or script == parentScript
+           ) 
+           and pcall(getUpvalue, v, upvalueIndex)  -- Ensure we can access the upvalue index
+        then
+            -- Match by name and constants
+            if ((name and name ~= "Unnamed function") and getInfo(v).name == name) and matchConstants(v, constants) then
+                return v
+            elseif (not name or name == "Unnamed function") and matchConstants(v, constants) then
+                return v
+            end
+        end
+    end
+end
+
+-- Assigning the placeholder constant and search function to `aux`
+aux.placeholderUserdataConstant = placeholderUserdataConstant
+aux.searchClosure = searchClosure
+
+-- Return the auxiliary object so it can be used in other scripts
+return aux
